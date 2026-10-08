@@ -12,23 +12,27 @@ export async function GET(request: Request) {
     // ignore decode error
   }
 
-  const isDouban = decoded.includes('doubanio.com');
-  const target = isDouban
-    ? `https://images.weserv.nl/?url=${encodeURIComponent(decoded.replace(/^https?:\/\//, ''))}`
-    : decoded;
+  // 用 wsrv.nl，支持完整 https 链接
+  const target = `https://wsrv.nl/?url=${encodeURIComponent(decoded)}&output=jpg`;
 
-  const res = await fetch(target, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-      'Referer': 'https://movie.douban.com/',
-    },
-  });
-
-  const buf = await res.arrayBuffer();
-  return new Response(buf, {
-    headers: {
-      'Content-Type': res.headers.get('content-type') || 'image/jpeg',
-      'Cache-Control': 'public, max-age=86400',
-    },
-  });
+  try {
+    const res = await fetch(target, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Referer': 'https://movie.douban.com/',
+        'Accept': 'image/*',
+      },
+    });
+    if (!res.ok) throw new Error('wsrv failed');
+    const buf = await res.arrayBuffer();
+    return new Response(buf, {
+      headers: {
+        'Content-Type': res.headers.get('content-type') || 'image/jpeg',
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
+  } catch {
+    // 如果 wsrv 也失败，直接 302 跳转到原图，让浏览器自己去试
+    return Response.redirect(decoded, 302);
+  }
 }
