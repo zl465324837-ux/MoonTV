@@ -4,40 +4,20 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const url = searchParams.get('url');
-  if (!url) return new Response('missing url', { status: 400 });
+  if (!url) return new Response('missing', { status: 400 });
 
   let decoded = url;
-  try { decoded = decodeURIComponent(url); } catch { /* ignore */ }
+  try { decoded = decodeURIComponent(url); } catch {}
 
-  const urlsToTry = [
-    `https://wsrv.nl/?url=${encodeURIComponent(decoded)}&output=webp`,
-    `https://images.weserv.nl/?url=${encodeURIComponent(decoded.replace(/^https?:\/\//, ''))}&output=jpg`,
-    `https://images.weserv.nl/?url=${encodeURIComponent(decoded)}`,
-  ];
-
-  for (const target of urlsToTry) {
-    try {
-      const res = await fetch(target, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 AppleWebKit/537.36',
-          'Referer': 'https://movie.douban.com/',
-        },
-      });
-      if (!res.ok) continue;
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength < 1000) continue;
-      return new Response(buf, {
-        headers: {
-          'Content-Type': res.headers.get('content-type') || 'image/jpeg',
-          'Cache-Control': 'public, max-age=86400',
-          'Access-Control-Allow-Origin': '*',
-        },
-      });
-    } catch {
-      // try next
+  // 直接302跳转到最稳的公共代理，浏览器自己去加载
+  const proxied = `https://images.weserv.nl/?url=${encodeURIComponent(decoded)}&output=jpg&q=80&n=-1`;
+  
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'Location': proxied,
+      'Cache-Control': 'public, max-age=86400',
+      'Access-Control-Allow-Origin': '*',
     }
-  }
-
-  // 实在不行，直接让浏览器去试原图
-  return Response.redirect(decoded, 302);
+  });
 }
