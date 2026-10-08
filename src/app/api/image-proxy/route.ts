@@ -1,26 +1,49 @@
 import { NextResponse } from 'next/server';
+
 export const runtime = 'edge';
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const imageUrl = searchParams.get('url');
-  if (!imageUrl) return NextResponse.json({ error: 'Missing image URL' }, { status: 400 });
-  const headers = {
-    Referer: 'https://movie.douban.com/',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  };
+  const originalUrl = searchParams.get('url');
+
+  if (!originalUrl) {
+    return NextResponse.json({ error: '缺少 url 参数' }, { status: 400 });
+  }
+
+  let urlToFetch = originalUrl;
   try {
-    let imageResponse = await fetch(imageUrl, { headers });
-    if (!imageResponse.ok) {
-      const fallback = `https://images.weserv.nl/?url=${encodeURIComponent(imageUrl)}`;
-      imageResponse = await fetch(fallback, { headers: { 'User-Agent': headers['User-Agent'] } });
-    }
-    if (!imageResponse.ok || !imageResponse.body) return NextResponse.json({ error: 'Image fetch failed' }, { status: 500 });
-    const h = new Headers();
-    h.set('Content-Type', imageResponse.headers.get('content-type') || 'image/jpeg');
-    h.set('Cache-Control', 'public, max-age=15720000, s-maxage=15720000');
-    h.set('Access-Control-Allow-Origin', '*');
-    return new Response(imageResponse.body, { status: 200, headers: h });
-  } catch {
-    return NextResponse.json({ error: 'Error fetching image' }, { status: 500 });
+    urlToFetch = decodeURIComponent(originalUrl);
+  } catch {}
+
+  // 豆瓣图直接走 wsrv.nl，不走直连，否则 Cloudflare IP 必被封
+  const isDouban = urlToFetch.includes('doubanio.com') || urlToFetch.includes('douban.com');
+  const targetUrl = isDouban
+    ? `https://images.weserv.nl/?url=${encodeURIComponent(urlToFetch.replace(/^https?:\/\//, ''))}&output=jpg`
+    : urlToFetch;
+
+  try {
+    const res = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://movie.douban.com/',
+        'Accept': 'image/*,*/*',
+      },
+    });
+
+    if (!res.ok) throw new Error(`fetch failed ${res.status}`);
+
+    const buf = await res.arrayBuffer();
+    const contentType = res.headers.get('content-type') || 'image/jpeg';
+
+    return new NextResponse(buf, {
+      status: 200,
+      headers: {
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+        'CDN-Cache-Control': 'public, s-maxage=86400',
+      },
+    });
+  } catch (e) {
+    return NextResponse.json({ error: '代理失败', details: (e as Error).message, url: urlToFetch }, { status: 500 });
   }
 }
